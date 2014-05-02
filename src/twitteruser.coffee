@@ -17,6 +17,7 @@
 # limitations under the License.
 
 require "set-immediate"
+fs = require 'fs'
 urlparse = require("url").parse
 _ = require("underscore")
 async = require("async")
@@ -29,6 +30,16 @@ Twitter = require("./twitter")
 Shadow = require("./shadow")
 Edge = require("./edge")
 LinkError = require("./linkerror")
+
+
+config = undefined
+defaults =
+  bridge: 'acct:bridge@io.intevation.de'
+
+if fs.existsSync('/etc/pump2status.json')        
+  config = _.defaults(JSON.parse(fs.readFileSync('/etc/pump2status.json')), defaults)
+else
+  config = undefined
 
 module.exports = (config, Twitter) ->
   TwitterUser = DatabankObject.subClass("twitteruser")
@@ -289,17 +300,32 @@ module.exports = (config, Twitter) ->
       _.some recip, (rec) ->
         rec.objectType is "collection" and rec.id is "http://activityschema.org/collection/public"
 
+    isBridgeActivity = (act) ->
+      recip = []
+      _.each [
+        "to"
+        "cc"
+        "bto"
+        "bcc"
+      ], (prop) ->
+        recip = recip.concat(act[prop])  if _.isArray(act[prop])
+        return
 
+      _.some recip, (rec) ->
+        rec.objectType is "person" and rec.id is config.bridge
+       
     isPostNoteActivity = (act) ->
       act.verb is "post" and act.object.objectType is "note"
 
-    if isPublicActivity(activity) and isPostNoteActivity(activity)
+    isShareNoteActivity = (act) ->
+      act.verb is "share" and act.object.objectType is "note"
+
+    if (isPublicActivity(activity) or isBridgeActivity(activity)) and (isPostNoteActivity(activity) or isShareNoteActivity(activity))
       twuser.postActivity activity, site, callback
     else
       callback null
     return
 
-  
   # XXX: forward non-public stuff to followers iff user has a private account
   # XXX: forward public images
   TwitterUser::postActivity = (activity, site, callback) ->
